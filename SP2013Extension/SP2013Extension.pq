@@ -4,13 +4,27 @@ section SP2013Extension;
 [DataSource.Kind="SP2013Extension", Publish="SP2013Extension.Publish"]
 shared SP2013Extension.Contents = (spurl as text, queryText as text) =>
       let
-          searchUrl = Text.Combine({spurl, "/_api/search/query?querytext=", queryText}),
+           searchUrl = Text.Combine({spurl, "/_api/search/query?querytext=", queryText}),
            AuthenticateUser = SP2013Extension.AuthenticateUser(spurl),
-           SearchResults = Xml.Tables(Web.Contents(searchUrl, [Headers=[Cookie=AuthenticateUser]]) )
-//            ErrorCode = AuthenticateUser[ErrorCode],
-//            SearchResults = if(ErrorCode = "NoError") then Xml.Tables(Web.Contents(searchUrl)) else Xml.Tables(Web.Contents(searchUrl))
-     in
-       SearchResults;
+           SearchResults = Json.Document(Web.Contents(searchUrl, [Headers=[Cookie=AuthenticateUser,#"Accept"="application/json;odata=verbose"]]) ),
+           d = SearchResults[d],
+            query = d[query],
+            PrimaryQueryResult = query[PrimaryQueryResult],
+            RelevantResults = PrimaryQueryResult[RelevantResults],
+            Table = RelevantResults[Table],
+            Rows = Table[Rows],
+            #"Converted to Table" = Record.ToTable(Rows),
+            #"Expanded Value" = Table.ExpandListColumn(#"Converted to Table", "Value"),
+            #"Expanded Value1" = Table.ExpandRecordColumn(#"Expanded Value", "Value", {"Cells"}, {"Value.Cells"}),
+            #"Added Index" = Table.AddIndexColumn(#"Expanded Value1", "Index", 1, 1),
+            #"Expanded Value.Cells" = Table.ExpandRecordColumn(#"Added Index", "Value.Cells", {"results"}, {"Value.Cells.results"}),
+            #"Value Cells results" = #"Expanded Value.Cells"[Value.Cells.results],
+            #"Converted to Table1" = Table.FromList(#"Value Cells results", Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+            #"Expanded Column1" = Table.ExpandListColumn(#"Converted to Table1", "Column1"),
+            #"Expanded Column2" = Table.ExpandRecordColumn(#"Expanded Column1", "Column1", {"Key", "Value"}, {"Column1.Key", "Column1.Value"}),
+            #"Grouped Rows" = Table.PromoteHeaders(Table.FromColumns(Table.Group(#"Expanded Column2", {"Column1.Key"}, {{"GR1", each List.InsertRange([Column1.Value],0,List.Distinct([Column1.Key]))}})[GR1]))
+in
+    #"Grouped Rows";
 shared SP2013Extension.AuthenticateUser = (spurl as text) =>
       let
            authenticationUrl = Text.Combine({spurl, "/_vti_bin/Authentication.asmx"}),
